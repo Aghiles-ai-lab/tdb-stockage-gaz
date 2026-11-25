@@ -293,20 +293,33 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Observatoire des réserves de gaz naturel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Questrial&display=swap" rel="stylesheet" />
 <style>
+  :root {
+    --font-main: "Century Gothic", CenturyGothic, AppleGothic, "Questrial", sans-serif;
+    --c-noir: #1C1C1C;
+    --c-rouge: #FC4128;
+    --c-bleu: #69A3F5;
+    --c-jaune: #E6D748;
+    --c-violet: #7E45AA;
+    --c-vert: #5CA757;
+    --c-bleu-clair: #BACFF7;
+  }
   body {
     margin: 0;
     padding: 18px;
-    background: #fafafa;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    color: #1f1f1f;
+    background: #F6F6F5;
+    font-family: var(--font-main);
+    color: var(--c-noir);
   }
   .obs-wrap {
-    background: #ffffff;
+    background: #FFFFFF;
     max-width: 1080px;
     margin: 0 auto;
-    padding: 22px 26px 18px;
-    border: 1px solid #ececec;
+    padding: 24px 28px 18px;
+    border: 1px solid #E6E6E6;
     border-radius: 10px;
     box-sizing: border-box;
   }
@@ -316,54 +329,88 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     align-items: flex-start;
     gap: 16px;
     flex-wrap: wrap;
-    margin-bottom: 16px;
+    margin-bottom: 18px;
   }
   .obs-title {
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: 32px;
-    font-weight: 500;
+    font-family: var(--font-main);
+    font-size: 30px;
+    font-weight: 700;
     margin: 0 0 4px 0;
     line-height: 1.15;
-    color: #1a1a1a;
+    color: var(--c-noir);
+    letter-spacing: -0.01em;
   }
-  .obs-subtitle { font-size: 14px; color: #555; margin: 0; }
-  .obs-select {
+  .obs-subtitle {
     font-size: 14px;
-    padding: 8px 12px;
+    color: #555555;
+    margin: 0;
+  }
+  .obs-select {
+    font-family: var(--font-main);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 8px 14px;
     border-radius: 8px;
-    border: 1px solid #d4d4d0;
-    background: #f8f8f6;
-    color: #1f1f1f;
+    border: 1.5px solid var(--c-bleu);
+    background: #FFFFFF;
+    color: var(--c-noir);
     cursor: pointer;
     margin-top: 4px;
   }
   .obs-grid {
     display: grid;
-    grid-template-columns: 255px 1fr;
+    grid-template-columns: 260px 1fr;
     gap: 24px;
     align-items: start;
   }
   @media (max-width: 780px) {
     .obs-grid { grid-template-columns: 1fr; }
   }
-  .obs-kpis { display: flex; flex-direction: column; gap: 12px; }
-  .kpi-card { background: #f5f5f3; border-radius: 10px; padding: 14px 16px; }
-  .kpi-label { font-size: 13px; color: #555; margin-bottom: 4px; }
-  .kpi-value {
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: 29px;
-    font-weight: 500;
-    line-height: 1.15;
-    color: #1a1a1a;
+  .obs-kpis {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
-  .kpi-neg { color: #b92b27; }
-  .kpi-pos { color: #1f7a4c; }
-  .kpi-sub { font-size: 12px; color: #666; margin-top: 5px; line-height: 1.35; }
-  .obs-chart-title { font-size: 15px; font-weight: 600; margin: 2px 0 6px 0; color: #1f1f1f; }
-  .obs-footnote {
+  .kpi-card {
+    background: #F5F6F8;
+    border-left: 4px solid var(--c-bleu);
+    border-radius: 8px;
+    padding: 13px 16px;
+  }
+  .kpi-card.card-gap-neg { border-left-color: var(--c-rouge); }
+  .kpi-card.card-gap-pos { border-left-color: var(--c-vert); }
+  .kpi-card.card-prev { border-left-color: var(--c-noir); }
+  .kpi-card.card-proj { border-left-color: var(--c-violet); }
+  .kpi-label {
+    font-size: 12.5px;
+    color: #555555;
+    margin-bottom: 4px;
+  }
+  .kpi-value {
+    font-family: var(--font-main);
+    font-size: 27px;
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--c-noir);
+  }
+  .kpi-neg { color: var(--c-rouge); }
+  .kpi-pos { color: var(--c-vert); }
+  .kpi-sub {
     font-size: 12px;
-    color: #777;
-    border-top: 1px solid #e8e8e8;
+    color: #606060;
+    margin-top: 5px;
+    line-height: 1.35;
+  }
+  .obs-chart-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 2px 0 6px 0;
+    color: var(--c-noir);
+  }
+  .obs-footnote {
+    font-size: 11.5px;
+    color: #666666;
+    border-top: 1px solid #E8E8E8;
     padding-top: 10px;
     margin-top: 14px;
   }
@@ -391,6 +438,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <script>
 (function () {
   const DATA = __DATA_JSON__;
+  const FONT_MAIN = '"Century Gothic", CenturyGothic, AppleGothic, "Questrial", sans-serif';
+  const C = {
+    noir: "#1C1C1C",
+    rouge: "#FC4128",
+    bleu: "#69A3F5",
+    jaune: "#E6D748",
+    violet: "#7E45AA",
+    vert: "#5CA757",
+    bleuClairRgba: "rgba(186, 207, 247, 0.42)",
+    minMaxRgba: "rgba(28, 28, 28, 0.11)",
+    zoneObjRgba: "rgba(28, 28, 28, 0.04)"
+  };
   const MONTHS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 
   function fmtFr(val, decimals = 1, signed = false) {
@@ -437,6 +496,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     const isNeg = kpi.gap_5y_pts !== null && kpi.gap_5y_pts < 0;
     const arrow = isNeg ? "▼" : "▲";
     const gapCls = isNeg ? "kpi-neg" : "kpi-pos";
+    const gapCardCls = isNeg ? "card-gap-neg" : "card-gap-pos";
     const gapTwhTxt = kpi.gap_5y_twh !== null ? `${fmtFr(kpi.gap_5y_twh, 0, true)} TWh vs ` : "vs ";
     const projMain = kpi.proj_end_median_pct !== null ? `${fmtFr(kpi.proj_end_median_pct, 0)} %` : "Fin de cycle";
     const projSub = kpi.proj_end_median_pct !== null
@@ -449,17 +509,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="kpi-value">${fmtFr(kpi.full_pct, 1)} %</div>
         <div class="kpi-sub">${volTxt}</div>
       </div>
-      <div class="kpi-card">
+      <div class="kpi-card ${gapCardCls}">
         <div class="kpi-label">Écart à la moyenne 5 ans</div>
         <div class="kpi-value ${gapCls}">${arrow} ${fmtFr(kpi.gap_5y_pts, 1, true)} pts</div>
         <div class="kpi-sub">${gapTwhTxt}${fmtFr(kpi.mean_5y_pct, 1)} % (${meta.seasons_5y_range})</div>
       </div>
-      <div class="kpi-card">
+      <div class="kpi-card card-prev">
         <div class="kpi-label">Un an plus tôt</div>
         <div class="kpi-value">${fmtFr(kpi.prev_year_pct, 1)} %</div>
         <div class="kpi-sub">au même jour (${meta.prev_season || "N-1"})</div>
       </div>
-      <div class="kpi-card">
+      <div class="kpi-card card-proj">
         <div class="kpi-label">Projection au 31 mars</div>
         <div class="kpi-value">${projMain}</div>
         <div class="kpi-sub">${projSub}</div>
@@ -468,19 +528,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     const traces = [
       { x, y: s.min_5y, mode: "lines", line: { width: 0 }, showlegend: false, hoverinfo: "skip" },
-      { x, y: s.max_5y, mode: "lines", line: { width: 0 }, fill: "tonexty", fillcolor: "rgba(180,180,180,0.28)", name: "Min–max 5 ans", hoverinfo: "skip" },
+      { x, y: s.max_5y, mode: "lines", line: { width: 0 }, fill: "tonexty", fillcolor: C.minMaxRgba, name: "Min–max 5 ans", hoverinfo: "skip" },
       { x, y: s.proj_min, mode: "lines", line: { width: 0 }, showlegend: false, hoverinfo: "skip" },
-      { x, y: s.proj_max, mode: "lines", line: { width: 0 }, fill: "tonexty", fillcolor: "rgba(26,115,232,0.14)", showlegend: false, hoverinfo: "skip" },
-      { x, y: s.mean_5y, mode: "lines", line: { color: "#1f1f1f", width: 1.6 }, name: "Moy. 5 ans", hovertemplate: "Moy. 5 ans : %{y:.1f} %<extra></extra>" },
-      { x, y: s.prev, mode: "lines", line: { color: "#d96b27", width: 2.0 }, name: meta.prev_season || "N-1", hovertemplate: `${meta.prev_season || "N-1"} : %{y:.1f} %<extra></extra>` },
-      { x, y: s.current, mode: "lines", line: { color: "#1a73e8", width: 3.2 }, name: meta.current_season, hovertemplate: `${meta.current_season} : %{y:.1f} %<extra></extra>` },
-      { x, y: s.proj_median, mode: "lines", line: { color: "#1a73e8", width: 2.2, dash: "dash" }, name: "Projection", hovertemplate: "Projection médiane : %{y:.1f} %<extra></extra>" },
-      { x: [x[lastIdx]], y: [kpi.full_pct], mode: "markers", marker: { color: "#1a73e8", size: 10, line: { color: "#fff", width: 2 } }, showlegend: false, hoverinfo: "skip" }
+      { x, y: s.proj_max, mode: "lines", line: { width: 0 }, fill: "tonexty", fillcolor: C.bleuClairRgba, showlegend: false, hoverinfo: "skip" },
+      { x, y: s.mean_5y, mode: "lines", line: { color: C.noir, width: 1.7 }, name: "Moy. 5 ans", hovertemplate: "Moy. 5 ans : %{y:.1f} %<extra></extra>" },
+      { x, y: s.prev, mode: "lines", line: { color: C.rouge, width: 2.1 }, name: meta.prev_season || "N-1", hovertemplate: `${meta.prev_season || "N-1"} : %{y:.1f} %<extra></extra>` },
+      { x, y: s.current, mode: "lines", line: { color: C.bleu, width: 3.3 }, name: meta.current_season, hovertemplate: `${meta.current_season} : %{y:.1f} %<extra></extra>` },
+      { x, y: s.proj_median, mode: "lines", line: { color: C.bleu, width: 2.3, dash: "dash" }, name: "Projection", hovertemplate: "Projection médiane : %{y:.1f} %<extra></extra>" },
+      { x: [x[lastIdx]], y: [kpi.full_pct], mode: "markers", marker: { color: C.bleu, size: 10, line: { color: "#FFFFFF", width: 2 } }, showlegend: false, hoverinfo: "skip" }
     ];
 
     const annotations = [
-      { x: x[lastIdx], y: kpi.full_pct, text: `<b>${fmtFr(kpi.full_pct, 1)} %</b>`, showarrow: false, xshift: -26, yshift: -20, font: { size: 13, color: "#1a1a1a" } },
-      { x: "2025-11-01", y: 92, text: "Objectif UE 90 %", showarrow: false, font: { size: 11.5, color: "#333" } }
+      { x: x[lastIdx], y: kpi.full_pct, text: `<b>${fmtFr(kpi.full_pct, 1)} %</b>`, showarrow: false, xshift: -26, yshift: -20, font: { family: FONT_MAIN, size: 13, color: C.noir } },
+      { x: "2025-11-01", y: 92, text: "Objectif UE 90 %", showarrow: false, font: { family: FONT_MAIN, size: 11.5, color: C.noir } }
     ];
 
     if (kpi.proj_end_min_pct !== null) {
@@ -488,28 +548,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         x: "2026-03-31",
         y: Math.max(kpi.proj_end_min_pct, 3),
         text: `${fmtFr(kpi.proj_end_min_pct, 0)} % (profil ${kpi.proj_worst_season})`,
-        showarrow: false, xanchor: "right", yshift: 10, font: { size: 11.5, color: "#555" }
+        showarrow: false, xanchor: "right", yshift: 10, font: { family: FONT_MAIN, size: 11.5, color: "#555555" }
       });
     }
 
     const layout = {
-      margin: { l: 42, r: 16, t: 32, b: 30 },
-      plot_bgcolor: "#ffffff",
-      paper_bgcolor: "#ffffff",
+      font: { family: FONT_MAIN, color: C.noir },
+      margin: { l: 44, r: 16, t: 32, b: 30 },
+      plot_bgcolor: "#FFFFFF",
+      paper_bgcolor: "#FFFFFF",
       hovermode: "x unified",
-      legend: { orientation: "h", yanchor: "bottom", y: 1.02, xanchor: "left", x: 0, font: { size: 12, color: "#444" } },
+      legend: { orientation: "h", yanchor: "bottom", y: 1.02, xanchor: "left", x: 0, font: { family: FONT_MAIN, size: 12, color: C.noir } },
       shapes: [
-        { type: "rect", xref: "x", yref: "paper", x0: "2025-10-01", x1: "2025-12-01", y0: 0, y1: 1, fillcolor: "rgba(0,0,0,0.045)", line: { width: 0 }, layer: "below" },
-        { type: "line", xref: "x", yref: "y", x0: "2025-10-01", x1: "2025-12-01", y0: 90, y1: 90, line: { color: "#333", width: 1.4, dash: "dot" } }
+        { type: "rect", xref: "x", yref: "paper", x0: "2025-10-01", x1: "2025-12-01", y0: 0, y1: 1, fillcolor: C.zoneObjRgba, line: { width: 0 }, layer: "below" },
+        { type: "line", xref: "x", yref: "y", x0: "2025-10-01", x1: "2025-12-01", y0: 90, y1: 90, line: { color: C.noir, width: 1.5, dash: "dot" } }
       ],
       annotations,
       xaxis: {
         tickmode: "array",
         tickvals: ["2025-04-01", "2025-06-01", "2025-08-01", "2025-10-01", "2025-12-01", "2026-02-01", "2026-03-31"],
         ticktext: ["avr.", "juin", "août", "oct.", "déc.", "févr.", "avr."],
-        showgrid: false, linecolor: "#ddd", tickfont: { color: "#555", size: 12 }
+        showgrid: false, linecolor: "#DDDDDD", tickfont: { family: FONT_MAIN, color: "#555555", size: 12 }
       },
-      yaxis: { range: [0, 102], dtick: 20, ticksuffix: " %", gridcolor: "#efefef", zeroline: false, tickfont: { color: "#555", size: 12 } }
+      yaxis: { range: [0, 102], dtick: 20, ticksuffix: " %", gridcolor: "#EFEFEF", zeroline: false, tickfont: { family: FONT_MAIN, color: "#555555", size: 12 } }
     };
 
     Plotly.newPlot("obs-chart", traces, layout, { displayModeBar: false, responsive: true });
@@ -533,23 +594,24 @@ def main():
         print("⚠️ Aucune donnée disponible.")
         return
 
-    if not updated and os.path.exists(DASHBOARD_JSON) and os.path.exists(HTML_OUTPUT):
-        print("✅ Données et page HTML déjà à jour.")
-        return
+    if updated or not os.path.exists(DASHBOARD_JSON):
+        print("🧮 Recalcul des indicateurs...")
+        payload = {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "perimeters": {},
+        }
+        for perimeter in PERIMETERS.keys():
+            p_data = build_perimeter_payload(df[df["perimeter"] == perimeter])
+            if p_data:
+                payload["perimeters"][perimeter] = p_data
 
-    print("🧮 Calcul des indicateurs et génération de index.html...")
-    payload = {
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "perimeters": {},
-    }
-    for perimeter in PERIMETERS.keys():
-        p_data = build_perimeter_payload(df[df["perimeter"] == perimeter])
-        if p_data:
-            payload["perimeters"][perimeter] = p_data
+        with open(DASHBOARD_JSON, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    else:
+        with open(DASHBOARD_JSON, "r", encoding="utf-8") as f:
+            payload = json.load(f)
 
-    with open(DASHBOARD_JSON, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-
+    # Toujours régénérer index.html afin d'appliquer immédiatement toute modification visuelle
     data_json = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
     with open(HTML_OUTPUT, "w", encoding="utf-8") as f:
         f.write(HTML_TEMPLATE.replace("__DATA_JSON__", data_json))
