@@ -2,11 +2,13 @@ name: Actualisation quotidienne AGSI+
 
 on:
   schedule:
-    - cron: "0 12 * * *" # Tous les jours à 12h00 UTC (13h hiver / 14h été)
-  workflow_dispatch:     # Permet un lancement manuel à tout moment
+    - cron: "15 12 * * *" # Tous les jours vers 13h15 (hiver) / 14h15 (été)
+  workflow_dispatch:       # Permet aussi un lancement manuel à tout moment
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: agsi-update
@@ -42,3 +44,24 @@ jobs:
             git pull --rebase origin main
             git push
           fi
+
+      - name: Préparer la page web
+        run: |
+          mkdir -p _site
+          cp index.html _site/index.html
+
+      - name: Transférer vers GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "_site"
+
+  deploy:
+    needs: update
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publier sur GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
