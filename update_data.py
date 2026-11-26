@@ -124,18 +124,16 @@ def update_cache():
         for perimeter, config in PERIMETERS.items():
             print(f" -> {perimeter}", end=" ")
             p_cache = cache_df[cache_df["perimeter"] == perimeter]
+            valid_cache = p_cache.dropna(subset=["full"]) if not p_cache.empty else p_cache
 
-            if not p_cache.empty:
-                max_date = p_cache["date"].max()
-                start_date = (max_date + timedelta(days=1)).strftime("%Y-%m-%d")
+            if not valid_cache.empty:
+                max_date = valid_cache["date"].max()
+                # Re-télécharge les 7 derniers jours pour intégrer les consolidations AGSI+
+                start_date = (max_date - timedelta(days=7)).strftime("%Y-%m-%d")
                 last_str = max_date.strftime("%Y-%m-%d")
             else:
                 start_date = INITIAL_START_DATE
                 last_str = None
-
-            if start_date > today_str:
-                print(f"⏸️ Déjà à jour ({last_str}).")
-                continue
 
             df_new = fetch_agsi_data(session, config, start_date, today_str)
             if df_new is None:
@@ -149,10 +147,15 @@ def update_cache():
             df_new["date"] = pd.to_datetime(df_new["date"])
             for col in ("gasInStorage", "workingGasVolume", "full"):
                 df_new[col] = pd.to_numeric(df_new[col], errors="coerce")
+            df_new = df_new.dropna(subset=["full"])
+
+            if df_new.empty:
+                print(f"⏸️ Aucune nouvelle journée complète ({last_str or 'aucune donnée'}).")
+                continue
 
             new_chunks.append(df_new)
             has_new_data = True
-            print(f"✅ +{len(df_new)} jour(s).")
+            print(f"✅ {len(df_new)} jour(s) synchronisé(s) (jusqu'au {df_new['date'].max().strftime('%Y-%m-%d')}).")
 
     if has_new_data or cache_cleaned:
         dfs = [df for df in [cache_df] + new_chunks if not df.empty]
@@ -175,15 +178,17 @@ def build_perimeter_payload(df_p):
     latest_date = latest_row["date"]
     current_season = get_april_season(latest_date)
 
-    df_p["md"] = df_p["date"].dt.strftime("%m-%d")
-    df_p = df_p[df_p["md"].isin(MD_TO_IDX)].copy()
-    df_p["day_idx"] = df_p["md"].map(MD_TO_IDX)
-    df_p["season"] = df_p["date"].apply(get_april_season)
+    # --- 1. Taux de remplissage ---
+    df_full = df_p.copy()
+    df_full["md"] = df_full["date"].dt.strftime("%m-%d")
+    df_full = df_full[df_full["md"].isin(MD_TO_IDX)].copy()
+    df_full["day_idx"] = df_full["md"].map(MD_TO_IDX)
+    df_full["season"] = df_full["date"].apply(get_april_season)
 
     pivot_full = (
-        df_p.pivot_table(index="day_idx", columns="season", values="full", aggfunc="last")
+        df_full.pivot_table(index="day_idx", columns="season", values="full", aggfunc="last")
         .reindex(range(365))
-        .interpolate(method="linear", limit=3)
+        .interpolate(method="linear", limit=3, limit_area="inside")
     )
 
     all_seasons = sorted(pivot_full.columns.tolist())
@@ -249,8 +254,75 @@ def build_perimeter_payload(df_p):
             worst_season = min(raw_end_vals, key=raw_end_vals.get)
             end_min = round(float(end_vals[worst_season]), 1)
 
-    def to_list(series):
-        return [round(float(v), 2) if pd.notna(v) else None for v in series]
+    # --- 2. Soutirage net quotidien (moyenne mobile 7 jours, GWh/j) ---
+    # Positif : soutirage, négatif : injection
+    df_gas = (
+        df_p.dropna(subset=["gasInStorage"])
+        .drop_duplicates(subset=["date"], keep="last")
+        .set_index("date")["gasInStorage"]
+        .sort_index()
+        .asfreq("D")
+        .interpolate(method="linear", limit=3, limit_area="inside")
+    )
+    net_wd_daily = -df_gas.diff() * 1000.0
+    net_wd_7d = net_wd_daily.rolling(window=7, min_periods=4).mean()
+
+    df_wd = pd.DataFrame(
+        {
+            "date": net_wd_7d.index,
+            "wd_daily": net_wd_daily.values,
+            "wd_7d": net_wd_7d.values,
+        }
+    ).dropna(subset=["wd_7d"])
+    df_wd["md"] = df_wd["date"].dt.strftime("%m-%d")
+    df_wd = df_wd[df_wd["md"].isin(MD_TO_IDX)].copy()
+    df_wd["day_idx"] = df_wd["md"].map(MD_TO_IDX)
+    df_wd["season"] = df_wd["date"].apply(get_april_season)
+
+    pivot_wd = (
+        df_wd.pivot_table(index="day_idx", columns="season", values="wd_7d", aggfunc="last")
+        .reindex(range(365))
+        .interpolate(method="linear", limit=3, limit_area="inside")
+    )
+
+    wd_seasons_5y = [s for s in seasons_5y if s in pivot_wd.columns]
+    df_wd_5y = pivot_wd[wd_seasons_5y] if wd_seasons_5y else pd.DataFrame(index=range(365))
+    wd_mean_5y = df_wd_5y.mean(axis=1) if not df_wd_5y.empty else pd.Series(np.nan, index=range(365))
+    wd_min_5y = df_wd_5y.min(axis=1) if not df_wd_5y.empty else pd.Series(np.nan, index=range(365))
+    wd_max_5y = df_wd_5y.max(axis=1) if not df_wd_5y.empty else pd.Series(np.nan, index=range(365))
+
+    wd_current = (
+        pivot_wd[current_season]
+        if current_season in pivot_wd.columns
+        else pd.Series(np.nan, index=range(365))
+    )
+    wd_prev = (
+        pivot_wd[prev_season]
+        if (prev_season and prev_season in pivot_wd.columns)
+        else pd.Series(np.nan, index=range(365))
+    )
+
+    wd_last_idx = int(wd_current.last_valid_index()) if wd_current.notna().any() else last_idx
+    wd_curr_val = float(wd_current.loc[wd_last_idx]) if pd.notna(wd_current.loc[wd_last_idx]) else None
+    wd_latest_daily = (
+        float(net_wd_daily.loc[latest_date])
+        if (latest_date in net_wd_daily.index and pd.notna(net_wd_daily.loc[latest_date]))
+        else None
+    )
+    wd_mean_today = float(wd_mean_5y.loc[wd_last_idx]) if pd.notna(wd_mean_5y.loc[wd_last_idx]) else None
+    wd_gap_5y = (wd_curr_val - wd_mean_today) if (wd_curr_val is not None and wd_mean_today is not None) else None
+    wd_prev_today = float(wd_prev.loc[wd_last_idx]) if pd.notna(wd_prev.loc[wd_last_idx]) else None
+
+    wd_peak_val = None
+    wd_peak_date = None
+    df_wd_curr = df_wd[df_wd["season"] == current_season]
+    if not df_wd_curr.empty:
+        peak_row = df_wd_curr.loc[df_wd_curr["wd_7d"].idxmax()]
+        wd_peak_val = round(float(peak_row["wd_7d"]), 0)
+        wd_peak_date = peak_row["date"].strftime("%Y-%m-%d")
+
+    def to_list(series, decimals=2):
+        return [round(float(v), decimals) if pd.notna(v) else None for v in series]
 
     return {
         "meta": {
@@ -259,6 +331,7 @@ def build_perimeter_payload(df_p):
             "prev_season": prev_season,
             "seasons_5y_range": f"{seasons_5y[0]} → {seasons_5y[-1]}" if seasons_5y else "",
             "last_day_idx": last_idx,
+            "wd_last_day_idx": wd_last_idx,
             "n_proj_winters": len(seasons_10y),
         },
         "kpi": {
@@ -275,14 +348,32 @@ def build_perimeter_payload(df_p):
         },
         "series": {
             "ref_dates": IDX_TO_REF_DATE,
-            "current": to_list(current_series),
-            "prev": to_list(prev_series),
-            "mean_5y": to_list(mean_5y),
-            "min_5y": to_list(min_5y),
-            "max_5y": to_list(max_5y),
+            "current": to_list(current_series, 2),
+            "prev": to_list(prev_series, 2),
+            "mean_5y": to_list(mean_5y, 2),
+            "min_5y": to_list(min_5y, 2),
+            "max_5y": to_list(max_5y, 2),
             "proj_median": proj_median,
             "proj_min": proj_min,
             "proj_max": proj_max,
+        },
+        "withdrawal": {
+            "kpi": {
+                "current_7d_gwh": round(wd_curr_val, 0) if wd_curr_val is not None else None,
+                "latest_daily_gwh": round(wd_latest_daily, 0) if wd_latest_daily is not None else None,
+                "mean_5y_gwh": round(wd_mean_today, 0) if wd_mean_today is not None else None,
+                "gap_5y_gwh": round(wd_gap_5y, 0) if wd_gap_5y is not None else None,
+                "prev_year_gwh": round(wd_prev_today, 0) if wd_prev_today is not None else None,
+                "peak_7d_gwh": wd_peak_val,
+                "peak_date": wd_peak_date,
+            },
+            "series": {
+                "current": to_list(wd_current, 1),
+                "prev": to_list(wd_prev, 1),
+                "mean_5y": to_list(wd_mean_5y, 1),
+                "min_5y": to_list(wd_min_5y, 1),
+                "max_5y": to_list(wd_max_5y, 1),
+            },
         },
     }
 
@@ -329,7 +420,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     align-items: flex-start;
     gap: 16px;
     flex-wrap: wrap;
-    margin-bottom: 18px;
+    margin-bottom: 14px;
   }
   .obs-title {
     font-family: var(--font-main);
@@ -357,19 +448,55 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     cursor: pointer;
     margin-top: 4px;
   }
+  .obs-tabs {
+    display: flex;
+    gap: 6px;
+    border-bottom: 1.5px solid #EAEAEA;
+    margin-bottom: 18px;
+  }
+  .obs-tab {
+    font-family: var(--font-main);
+    font-size: 14px;
+    font-weight: 600;
+    color: #666666;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 8px 16px 10px;
+    margin-bottom: -1.5px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .obs-tab:hover {
+    color: var(--c-noir);
+  }
+  .obs-tab.active {
+    color: var(--c-noir);
+    border-bottom-color: var(--c-bleu);
+  }
+  .tab-panel.hidden {
+    display: none;
+  }
   .obs-grid {
     display: grid;
     grid-template-columns: 260px 1fr;
     gap: 24px;
     align-items: start;
   }
-  @media (max-width: 780px) {
-    .obs-grid { grid-template-columns: 1fr; }
-  }
   .obs-kpis {
     display: flex;
     flex-direction: column;
     gap: 12px;
+  }
+  .obs-kpis-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  @media (max-width: 780px) {
+    .obs-grid { grid-template-columns: 1fr; }
+    .obs-kpis-row { grid-template-columns: repeat(2, 1fr); }
   }
   .kpi-card {
     background: #F5F6F8;
@@ -388,7 +515,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }
   .kpi-value {
     font-family: var(--font-main);
-    font-size: 27px;
+    font-size: 25px;
     font-weight: 700;
     line-height: 1.15;
     color: var(--c-noir);
@@ -402,10 +529,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     line-height: 1.35;
   }
   .obs-chart-title {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 700;
-    margin: 2px 0 6px 0;
+    margin: 2px 0 4px 0;
     color: var(--c-noir);
+  }
+  .obs-chart-sub {
+    font-size: 13px;
+    color: #666666;
+    margin: 0 0 10px 0;
   }
   .obs-footnote {
     font-size: 11.5px;
@@ -425,13 +557,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
     <select class="obs-select" id="obs-select"></select>
   </div>
-  <div class="obs-grid">
-    <div class="obs-kpis" id="obs-kpis"></div>
-    <div>
-      <div class="obs-chart-title" id="obs-chart-title"></div>
-      <div id="obs-chart" style="width:100%; height:440px;"></div>
+
+  <div class="obs-tabs">
+    <button class="obs-tab active" data-tab="storage">Taux de remplissage</button>
+    <button class="obs-tab" data-tab="withdrawal">Soutirage net quotidien</button>
+  </div>
+
+  <div id="panel-storage" class="tab-panel">
+    <div class="obs-grid">
+      <div class="obs-kpis" id="obs-kpis"></div>
+      <div>
+        <div class="obs-chart-title" id="obs-chart-title"></div>
+        <div id="obs-chart" style="width:100%; height:440px;"></div>
+      </div>
     </div>
   </div>
+
+  <div id="panel-withdrawal" class="tab-panel hidden">
+    <div class="obs-kpis-row" id="wd-kpis"></div>
+    <div class="obs-chart-title" id="wd-chart-title"></div>
+    <div class="obs-chart-sub">Moyenne mobile sur 7 jours, en GWh/j. Positif : soutirage, négatif : injection. Les vagues de froid apparaissent comme des pics.</div>
+    <div id="wd-chart" style="width:100%; height:440px;"></div>
+  </div>
+
   <div class="obs-footnote" id="obs-footnote"></div>
 </div>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
@@ -452,14 +600,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   };
   const MONTHS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 
+  let activeTab = "storage";
+
   function fmtFr(val, decimals = 1, signed = false) {
     if (val === null || val === undefined || Number.isNaN(val)) return "—";
     let prefix = "";
     if (signed) {
       if (val > 0) prefix = "+";
       else if (val < 0) prefix = "−";
+    } else if (val < 0) {
+      prefix = "−";
     }
-    const n = signed ? Math.abs(val) : val;
+    const n = Math.abs(val);
     return prefix + n.toLocaleString("fr-FR", {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals
@@ -467,22 +619,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }
 
   function fmtDateFr(iso) {
+    if (!iso) return "";
     const [y, m, d] = iso.split("-").map(Number);
     return `${d} ${MONTHS_FR[m - 1]} ${y}`;
   }
 
-  function render(perimeter) {
-    const p = DATA.perimeters[perimeter];
+  function renderStorage(perimeter, p) {
     const meta = p.meta;
     const kpi = p.kpi;
     const s = p.series;
     const x = s.ref_dates;
     const lastIdx = meta.last_day_idx;
 
-    const titleSuffix = perimeter === "UE" ? "en Europe" : `— ${perimeter}`;
-    document.getElementById("obs-title").textContent = `Réserves de gaz naturel ${titleSuffix}`;
-    document.getElementById("obs-subtitle").innerHTML =
-      `Données au <b>${fmtDateFr(meta.latest_date)}</b> (fin de journée gazière) · Source : GIE AGSI+`;
     document.getElementById("obs-chart-title").textContent =
       perimeter === "UE"
         ? "Taux de remplissage des stockages de l'UE"
@@ -528,96 +676,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     const traces = [
       { x, y: s.min_5y, mode: "lines", line: { width: 0 }, showlegend: false, hoverinfo: "skip" },
-      { x, y: s.max_5y, mode: "lines", line: { width: 0 }, fill: "tonexty", fillcolor: C.minMaxRgba, name: "Min–max 5 ans", hoverinfo: "skip" },
+      { x, y: s.max_5y, mode: "lines", line: { width: 0 }, fill: "tonexty", fillcolor: C.minMaxRgba, name: "Min–max 5 ans", legendrank: 5, hoverinfo: "skip" },
       { x, y: s.proj_min, mode: "lines", line: { width: 0 }, showlegend: false, hoverinfo: "skip" },
       { x, y: s.proj_max, mode: "lines", line: { width: 0 }, fill: "tonexty", fillcolor: C.bleuClairRgba, showlegend: false, hoverinfo: "skip" },
-      { x, y: s.mean_5y, mode: "lines", line: { color: C.noir, width: 1.7 }, name: "Moy. 5 ans", hovertemplate: "Moy. 5 ans : %{y:.1f} %<extra></extra>" },
-      { x, y: s.prev, mode: "lines", line: { color: C.rouge, width: 2.1 }, name: meta.prev_season || "N-1", hovertemplate: `${meta.prev_season || "N-1"} : %{y:.1f} %<extra></extra>` },
-      { x, y: s.current, mode: "lines", line: { color: C.bleu, width: 3.3 }, name: meta.current_season, hovertemplate: `${meta.current_season} : %{y:.1f} %<extra></extra>` },
-      { x, y: s.proj_median, mode: "lines", line: { color: C.bleu, width: 2.3, dash: "dash" }, name: "Projection", hovertemplate: "Projection médiane : %{y:.1f} %<extra></extra>" },
+      { x, y: s.mean_5y, mode: "lines", line: { color: C.noir, width: 1.7 }, name: "Moy. 5 ans", legendrank: 4, hovertemplate: "Moy. 5 ans : %{y:.1f} %<extra></extra>" },
+      { x, y: s.prev, mode: "lines", line: { color: C.rouge, width: 2.1 }, name: meta.prev_season || "N-1", legendrank: 3, hovertemplate: `${meta.prev_season || "N-1"} : %{y:.1f} %<extra></extra>` },
+      { x, y: s.current, mode: "lines", line: { color: C.bleu, width: 3.3 }, name: meta.current_season, legendrank: 2, hovertemplate: `${meta.current_season} : %{y:.1f} %<extra></extra>` },
+      { x, y: s.proj_median, mode: "lines", line: { color: C.bleu, width: 2.3, dash: "dash" }, name: "Projection", legendrank: 1, hovertemplate: "Projection médiane : %{y:.1f} %<extra></extra>" },
       { x: [x[lastIdx]], y: [kpi.full_pct], mode: "markers", marker: { color: C.bleu, size: 10, line: { color: "#FFFFFF", width: 2 } }, showlegend: false, hoverinfo: "skip" }
     ];
-
-    const annotations = [
-      { x: x[lastIdx], y: kpi.full_pct, text: `<b>${fmtFr(kpi.full_pct, 1)} %</b>`, showarrow: false, xshift: -26, yshift: -20, font: { family: FONT_MAIN, size: 13, color: C.noir } },
-      { x: "2025-11-01", y: 92, text: "Objectif UE 90 %", showarrow: false, font: { family: FONT_MAIN, size: 11.5, color: C.noir } }
-    ];
-
-    if (kpi.proj_end_min_pct !== null) {
-      annotations.push({
-        x: "2026-03-31",
-        y: Math.max(kpi.proj_end_min_pct, 3),
-        text: `${fmtFr(kpi.proj_end_min_pct, 0)} % (profil ${kpi.proj_worst_season})`,
-        showarrow: false, xanchor: "right", yshift: 10, font: { family: FONT_MAIN, size: 11.5, color: "#555555" }
-      });
-    }
-
-    const layout = {
-      font: { family: FONT_MAIN, color: C.noir },
-      margin: { l: 44, r: 16, t: 32, b: 30 },
-      plot_bgcolor: "#FFFFFF",
-      paper_bgcolor: "#FFFFFF",
-      hovermode: "x unified",
-      legend: { orientation: "h", yanchor: "bottom", y: 1.02, xanchor: "left", x: 0, font: { family: FONT_MAIN, size: 12, color: C.noir } },
-      shapes: [
-        { type: "rect", xref: "x", yref: "paper", x0: "2025-10-01", x1: "2025-12-01", y0: 0, y1: 1, fillcolor: C.zoneObjRgba, line: { width: 0 }, layer: "below" },
-        { type: "line", xref: "x", yref: "y", x0: "2025-10-01", x1: "2025-12-01", y0: 90, y1: 90, line: { color: C.noir, width: 1.5, dash: "dot" } }
-      ],
-      annotations,
-      xaxis: {
-        tickmode: "array",
-        tickvals: ["2025-04-01", "2025-06-01", "2025-08-01", "2025-10-01", "2025-12-01", "2026-02-01", "2026-03-31"],
-        ticktext: ["avr.", "juin", "août", "oct.", "déc.", "févr.", "avr."],
-        showgrid: false, linecolor: "#DDDDDD", tickfont: { family: FONT_MAIN, color: "#555555", size: 12 }
-      },
-      yaxis: { range: [0, 102], dtick: 20, ticksuffix: " %", gridcolor: "#EFEFEF", zeroline: false, tickfont: { family: FONT_MAIN, color: "#555555", size: 12 } }
-    };
-
-    Plotly.newPlot("obs-chart", traces, layout, { displayModeBar: false, responsive: true });
-  }
-
-  const sel = document.getElementById("obs-select");
-  const keys = Object.keys(DATA.perimeters);
-  sel.innerHTML = keys.map(k => `<option value="${k}">${k}</option>`).join("");
-  sel.addEventListener("change", () => render(sel.value));
-  render(keys[0]);
-})();
-</script>
-</body>
-</html>
-"""
-
-
-def main():
-    df, updated = update_cache()
-    if df.empty:
-        print("⚠️ Aucune donnée disponible.")
-        return
-
-    if updated or not os.path.exists(DASHBOARD_JSON):
-        print("🧮 Recalcul des indicateurs...")
-        payload = {
-            "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "perimeters": {},
-        }
-        for perimeter in PERIMETERS.keys():
-            p_data = build_perimeter_payload(df[df["perimeter"] == perimeter])
-            if p_data:
-                payload["perimeters"][perimeter] = p_data
-
-        with open(DASHBOARD_JSON, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-    else:
-        with open(DASHBOARD_JSON, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-
-    # Toujours régénérer index.html afin d'appliquer immédiatement toute modification visuelle
-    data_json = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
-    with open(HTML_OUTPUT, "w", encoding="utf-8") as f:
-        f.write(HTML_TEMPLATE.replace("__DATA_JSON__", data_json))
-
-    print(f"✅ Mise à jour terminée ({HTML_OUTPUT} prêt).")
-
-
-if __name__ == "__main__":
-    main()
