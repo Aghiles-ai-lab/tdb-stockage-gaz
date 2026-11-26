@@ -2,8 +2,9 @@ name: Actualisation quotidienne AGSI+
 
 on:
   schedule:
-    - cron: "15 12 * * *" # Tous les jours vers 13h15 (hiver) / 14h15 (été)
-  workflow_dispatch:       # Permet aussi un lancement manuel à tout moment
+    - cron: "37 19 * * *" # 20h37 heure d'hiver (après la publication AGSI+ de 19h30)
+    - cron: "23 7 * * *"  # 08h23 heure d'hiver (filet de sécurité + révisions de 23h00)
+  workflow_dispatch:      # Permet toujours un lancement manuel à tout moment
 
 permissions:
   contents: write
